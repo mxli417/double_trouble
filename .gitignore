@@ -1,0 +1,10 @@
+.env
+.env.staging
+.venv/
+__pycache__/
+*.py[cod]
+artifacts/
+data/
+models/
+/TEST_AND_DEPLOYMENT.local.md
+/ARCHITECTURE_AND_SECURITY.local.md

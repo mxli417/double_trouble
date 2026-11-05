@@ -1,0 +1,73 @@
+name: double-trouble-staging
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: double_trouble_staging
+      POSTGRES_USER: double_trouble
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.staging}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U double_trouble -d double_trouble_staging"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - staging-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://double_trouble:${POSTGRES_PASSWORD}@db:5432/double_trouble_staging
+      MATCHING_ENABLED: "true"
+      RUN_MIGRATIONS_ON_START: "true"
+      FACE_PROVIDER: app.opencv_provider:create_provider
+      FACE_MODEL_PATH: /app/models
+      FACE_EMBEDDING_DIM: "128"
+      FACE_MODEL_VERSION: yunet-2023mar+sface-2021dec
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_HOURS: "8"
+      INVITE_HOURS: "24"
+      INFERENCE_RETENTION_DAYS: "30"
+      INFERENCE_DAILY_LIMIT: "100"
+      MAX_UPLOAD_BYTES: "10485760"
+      MAX_IMAGE_PIXELS: "40000000"
+      IMAGE_MAX_SIDE: "1600"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      BOOTSTRAP_SECRET: ${BOOTSTRAP_SECRET:?set BOOTSTRAP_SECRET in .env.staging}
+      DEPLOYMENT_ENVIRONMENT: staging
+      EXPERIMENT_VARIANT: ${EXPERIMENT_VARIANT:-control}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SELF_SIMILARITY_THRESHOLD: ${SELF_SIMILARITY_THRESHOLD:-0.55}
+      CONSENTED_STORAGE_ENABLED: "true"
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?set DATA_ENCRYPTION_KEY in .env.staging}
+      DATA_ENCRYPTION_KEY_VERSION: ${DATA_ENCRYPTION_KEY_VERSION:-v1}
+      RETAINED_UPLOAD_DAYS: ${RETAINED_UPLOAD_DAYS:-30}
+      RETAINED_IMAGE_MAX_SIDE: ${RETAINED_IMAGE_MAX_SIDE:-1024}
+      CONSENT_TEXT_VERSION: ${CONSENT_TEXT_VERSION:-2026-11-05}
+      MATCH_NARRATION_ENABLED: ${MATCH_NARRATION_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-12}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "127.0.0.1:8001:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+volumes:
+  staging-postgres:

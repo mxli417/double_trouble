@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+!.env.staging.example
+.venv
+__pycache__
+*.py[cod]
+tests
+artifacts
+data
+models

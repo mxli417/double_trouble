@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f0e8">
+  <title>Double Trouble - find your double</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar"><a class="brand" href="/" aria-label="Double Trouble home"><span class="brand-mark">DT</span> DOUBLE TROUBLE</a><div class="account-bar"><a id="admin-link" class="tiny-pill hidden" href="/admin">ADMIN PANEL</a><span id="account-label" class="tiny-pill hidden"></span><button id="logout-button" class="tiny-pill hidden">SIGN OUT</button><span id="science-pill" class="tiny-pill">A VERY UNOFFICIAL SCIENCE</span></div></header>
+    <section id="auth-screen" class="auth-card">
+      <p class="eyebrow">PRIVATE PARTY, INVITE ONLY</p><h2>Sign in to play.</h2>
+      <form id="login-form" class="auth-form"><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">SIGN IN <span>-&gt;</span></button></form>
+      <p id="auth-status" class="status" aria-live="polite">Accounts are created by an administrator.</p>
+    </section>
+    <section id="app-content" class="hero hidden">
+      <p class="eyebrow">YOUR FACE HAS A FAMOUS COUSIN</p>
+      <h1>Find your double.<br><em>Pick your favorite.</em></h1>
+      <p class="intro">One selfie. Five suspiciously plausible matches. Then help the internet settle the only question that matters: who wins Face Off?</p>
+      <div class="tabs" role="tablist"><button class="tab active" data-view="match">FIND YOUR DOUBLE</button><button class="tab" data-view="rank">FACE OFF</button></div>
+      <section id="match-view" class="panel">
+        <label id="drop-zone" class="drop-zone" for="photo"><span class="upload-icon">+</span><strong>Take or choose your first selfie</strong><span>Camera or file - JPEG, PNG, WebP, HEIC - max 10 MB</span><input id="photo" type="file" accept="image/*" capture="user"></label>
+        <label id="verification-zone" class="drop-zone verification-zone hidden" for="verification-photo"><span class="upload-icon">+</span><strong>Take or choose a second selfie</strong><span>Same person, different lighting - used for the one-request consistency check</span><input id="verification-photo" type="file" accept="image/*" capture="user"></label>
+        <fieldset class="consent-panel">
+          <legend>YOUR CHOICE, YOUR FACE</legend>
+          <label><input id="processing-consent" type="checkbox"> <span><b>Required:</b> Process both photos and temporary embeddings to find my double. They are discarded after the request unless I opt in below.</span></label>
+          <label><input id="retention-consent" type="checkbox" disabled> <span><b>Optional:</b> Store the first normalized photo encrypted together with its face vector for <span id="retention-days">30</span> days. Only administrators can view the photo; I can delete my retained uploads at any time.</span></label>
+          <label><input id="narration-consent" type="checkbox" disabled> <span><b>Optional:</b> Ask OpenAI for a playful sentence. Only candidate names and similarity scores are sent, never my photo, vector, email, or account ID.</span></label>
+          <p id="feature-note" class="consent-note">Optional services are loading.</p>
+          <button id="withdraw-consent" class="small-action" type="button">DELETE MY RETAINED UPLOADS</button>
+        </fieldset>
+        <button class="primary" id="match-button" disabled>CHECK &amp; FIND MY DOUBLE <span>-&gt;</span></button>
+        <p class="privacy-note">Without optional retention, both images and query embeddings are request-only. Match metadata is retained for 30 days; sign-ins and Face Off activity for up to 365 days.</p>
+        <div id="match-status" class="status" aria-live="polite">The stage is set. The face model is waiting in the wings.</div>
+        <div id="match-results" class="results" aria-live="polite"></div>
+      </section>
+      <section id="rank-view" class="panel hidden">
+        <div class="duel-heading"><span class="live-dot"></span><span>FACE OFF</span><span class="round-label">ONE VOTE = ONE RATING UPDATE</span></div>
+        <div class="duel-card" id="duel-card"><div class="duel-placeholder"><span>*</span><b>Two icons enter.</b><small>Pick your personal winner.</small></div><div class="vs">VS</div><div class="duel-placeholder"><span>*</span><b>One Elo point leaves.</b><small>Hotness is a relative sport.</small></div></div>
+        <button class="primary" id="next-duel" disabled>LOAD FACE OFF <span>-&gt;</span></button>
+        <p class="privacy-note">No objective hotness score here. Elo reflects pairwise votes. Photo-based duels need a separately cleared portrait source.</p>
+        <div id="rank-status" class="status">The licensed gallery is not loaded yet.</div>
+        <ol id="rankings" class="rankings"></ol>
+      </section>
+    </section>
+    <footer><span>DOUBLE TROUBLE (C) 2026</span><span>GOOD VIBES. BETTER RANKINGS.</span></footer>
+  </main>
+  <div id="luck-spiral" class="luck-spiral hidden" role="status" aria-live="polite"><div class="spiral-orbit orbit-one"></div><div class="spiral-orbit orbit-two"></div><div class="spiral-core">FINDING<br>YOUR DOUBLE</div></div>
+  <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+</body>
+</html>
