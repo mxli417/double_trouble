@@ -90,6 +90,7 @@ services:
 databases:
   - name: doppelganger-db
     plan: free
+    region: frankfurt
     databaseName: doppelganger
     user: doppelganger
     postgresMajorVersion: "16"
