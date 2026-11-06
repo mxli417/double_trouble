@@ -64,7 +64,7 @@ numpy==2.5.4
     # via opencv-python-headless
 openai==2.54.0
     # via double-trouble
-opencv-python-headless==4.14.0.94
+opencv-python-headless==5.0.0.93
     # via double-trouble
 opentelemetry-api==1.45.2
     # via fastapi
