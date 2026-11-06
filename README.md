@@ -2,16 +2,16 @@
 
 > **Find your double. Pick your favorite.**
 
-Double Trouble is a private, invite-only face-matching party app. Take two selfies, let the app check that the face embedding stays consistent across different lighting, and discover the five people in the reference gallery who look most like you. Then switch to **Face Off** and settle the truly important question: which favorite wins the room?
+Double Trouble is a private, invite-only face-matching party app. Take a selfie, see it next to the five pictured people in the reference gallery who look most like you, and then switch to **Hot or Not** to settle the truly important question: which favorite wins the room? A separate two-photo self-similarity tool checks model consistency across lighting when you want it.
 
 The project is also a compact blueprint for running a CPU-only computer-vision product: a same-origin FastAPI application, a replaceable face-model provider, PostgreSQL/pgvector retrieval, consent-aware biometric handling, observable requests, and a promotion path from development to production.
 
 ## What is in the box?
 
 - **Camera or file upload:** JPEG, PNG, WebP, HEIC, and HEIF from phones and desktops.
-- **Two-photo confidence check:** compares the same person under different lighting before searching the gallery.
-- **Lookalike search:** returns five unique names using exact cosine distance over face embeddings.
-- **Face Off:** pairwise votes feed an Elo leaderboard. It is a community preference game, not an objective attractiveness score.
+- **Optional two-photo confidence check:** a dedicated sidebar tool compares the same person under different lighting without blocking matching.
+- **Pictured lookalike search:** displays the upload beside five unique gallery identities using exact cosine distance over face embeddings.
+- **Hot or Not:** pairwise portrait votes feed an Elo leaderboard. Guests join only after separate, revocable retention and game-participation consent.
 - **Invite-only access:** revocable server-side sessions, one-time invitations, roles, admin audit events, and a guarded first-admin bootstrap.
 - **Privacy by default:** photos and query vectors live only for the request unless the user separately opts into encrypted, expiring retention.
 - **Optional narration:** OpenAI can turn candidate names and scores into one playful line without receiving the visitor's photo, vector, email, or account ID.
@@ -28,13 +28,14 @@ flowchart LR
     API --> N[Decode, orient<br/>and bound image]
     N --> Y[YuNet<br/>face + landmarks]
     Y --> S[SFace<br/>128-d embedding]
-    S --> SC{Two-photo<br/>self-check}
-    SC -->|pass| PG[(PostgreSQL<br/>+ pgvector)]
+    S --> PG[(PostgreSQL<br/>+ pgvector)]
+    S -. optional second photo .-> SC[Request-only<br/>self-check]
     PG --> M[Top five<br/>lookalikes]
     M --> UI
-    PG --> E[Face Off<br/>Elo ranking]
+    PG --> E[Hot or Not<br/>Elo ranking]
     E --> UI
-    S -. explicit opt-in .-> C[Encrypted photo<br/>+ encrypted vector]
+    S -. retention opt-in .-> C[Encrypted photo<br/>+ encrypted vector]
+    C -. separate game consent .-> E
     M -. names + scores only .-> O[Optional OpenAI<br/>narration]
 ```
 
@@ -57,15 +58,15 @@ No YOLO model is used. Generic COCO weights do not contain a face class, and the
 1. The server validates bytes, media type, and pixel count; applies EXIF orientation; converts to RGB; and downsizes in memory.
 2. YuNet selects a clear, sufficiently large, central face and returns five landmarks.
 3. SFace aligns that face and creates a normalized 128-dimensional vector.
-4. A second photo of the same person is embedded and compared with cosine similarity. It is discarded immediately after the request.
-5. pgvector finds the nearest reference sample per identity and returns five unique candidates.
-6. The optional retention path encrypts the normalized first image and its vector separately. The default path stores neither.
+4. pgvector finds the nearest reference sample per identity and returns five unique candidates with authenticated portrait URLs when the gallery was built with cleared portraits.
+5. The optional retention path encrypts the normalized image and its vector separately. A second, explicit consent can publish the decrypted portrait to signed-in Hot or Not players until withdrawal or expiry. The default path stores neither.
+6. The separate self-similarity tool embeds two request-local photos, returns score/threshold/pass-fail, and retains neither image nor vector.
 
 Similarity is a relative retrieval signal, not proof of identity. Reference provenance, model version, vector dimension, and consent version travel with the relevant records so model changes can be evaluated and rolled out deliberately.
 
-## Face Off: ranking for fun
+## Hot or Not: ranking for fun
 
-Face Off presents two nearby Elo competitors most of the time and occasionally explores a random pairing. A vote is written as an immutable event and updates both ratings in one transaction; retrying the same duel cannot count it twice.
+Hot or Not presents two pictured, nearby Elo competitors most of the time and occasionally explores a random pairing. The pool can combine rights-cleared gallery portraits and explicitly consented guest portraits. A vote is written as an immutable event and updates both ratings in one transaction; retrying the same matchup cannot count it twice.
 
 Lookalike similarity and Elo remain separate on purpose: the model answers *“who is nearby in embedding space?”* while the crowd answers *“who wins this matchup?”* Neither is an objective statement about beauty, identity, or worth.
 

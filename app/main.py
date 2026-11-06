@@ -5,7 +5,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -124,6 +124,23 @@ def valid_email(value: str) -> str:
     return email
 
 
+def valid_candidate_name(value: str) -> str:
+    name = " ".join(value.strip().split())
+    if not 2 <= len(name) <= 40 or any(ord(character) < 32 for character in name):
+        raise HTTPException(status_code=422, detail="Choose a Hot or Not display name between 2 and 40 characters")
+    if "@" in name:
+        raise HTTPException(status_code=422, detail="Use a nickname, not an email address, for Hot or Not")
+    return name
+
+
+def candidate_name_from_header(value: str) -> str:
+    try:
+        decoded = unquote(value, errors="strict")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="Hot or Not display name encoding is invalid") from exc
+    return valid_candidate_name(decoded)
+
+
 def write_inference(
     db: Session,
     user_id: str,
@@ -150,6 +167,18 @@ def write_inference(
 
 def activity(db: Session, user_id: str, action: str, details: dict | None = None) -> None:
     db.add(UserActivityEvent(id=str(uuid4()), user_id=user_id, action=action, details=details or {}))
+
+
+def deactivate_hot_or_not_uploads(db: Session, upload_ids) -> None:
+    db.execute(
+        update(Celebrity)
+        .where(Celebrity.consented_upload_id.in_(upload_ids))
+        .values(
+            consented_upload_id=None,
+            is_hot_or_not_active=False,
+            display_name="Withdrawn guest",
+        )
+    )
 
 
 async def read_limited_body(request: Request, limit: int) -> bytes:
@@ -197,6 +226,8 @@ async def security_headers(request: Request, call_next):
             with SessionLocal() as cleanup_db:
                 cutoff = datetime.now(UTC) - timedelta(days=settings.inference_retention_days)
                 cleanup_db.execute(delete(InferenceEvent).where(InferenceEvent.created_at < cutoff))
+                expired_uploads = select(ConsentedUpload.id).where(ConsentedUpload.expires_at < datetime.now(UTC))
+                deactivate_hot_or_not_uploads(cleanup_db, expired_uploads)
                 cleanup_db.execute(delete(ConsentedUpload).where(ConsentedUpload.expires_at < datetime.now(UTC)))
                 audit_cutoff = datetime.now(UTC) - timedelta(days=365)
                 cleanup_db.execute(delete(AdminAuditEvent).where(AdminAuditEvent.created_at < audit_cutoff))
@@ -222,7 +253,7 @@ async def security_headers(request: Request, call_next):
     if request.url.scheme == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") or request.url.path in {"/accept", "/admin", "/setup-admin"} else "public, max-age=300"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     return response
 
 
@@ -513,6 +544,8 @@ def admin_consented_uploads(
         "embedding_dimensions": upload.embedding_dimensions,
         "consent_text_version": upload.consent_text_version,
         "consented_at": upload.consented_at,
+        "hot_or_not_consent_version": upload.hot_or_not_consent_version,
+        "hot_or_not_consented_at": upload.hot_or_not_consented_at,
         "expires_at": upload.expires_at,
     } for upload, email in rows]
 
@@ -562,6 +595,7 @@ def admin_delete_consented_upload(
     if upload is None:
         raise HTTPException(status_code=404, detail="Stored upload not found")
     subject_user_id = upload.user_id
+    deactivate_hot_or_not_uploads(db, [upload.id])
     db.delete(upload)
     audit(db, "admin.consented_upload.delete", actor_id=admin.id, subject_user_id=subject_user_id,
           details={"upload_id": upload_id})
@@ -573,6 +607,8 @@ def admin_delete_consented_upload(
 def delete_my_consented_uploads(
     request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)
 ):
+    upload_ids = select(ConsentedUpload.id).where(ConsentedUpload.user_id == user.id)
+    deactivate_hot_or_not_uploads(db, upload_ids)
     deleted = db.execute(delete(ConsentedUpload).where(ConsentedUpload.user_id == user.id)).rowcount
     activity(db, user.id, "consent.uploads.withdrawn", {"deleted": deleted})
     db.commit()
@@ -613,10 +649,17 @@ def health(db: Session = Depends(get_db)):
     from sqlalchemy import text
 
     db.execute(text("SELECT 1"))
+    hot_or_not_candidates = db.scalar(
+        select(func.count()).select_from(Celebrity).where(
+            Celebrity.is_hot_or_not_active.is_(True),
+            or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
+        )
+    ) or 0
     return {
         "status": "ok",
         "matching_enabled": settings.matching_enabled,
         "gallery_loaded": bool(db.scalar(select(func.count()).select_from(FaceSample))),
+        "hot_or_not_ready": hot_or_not_candidates >= 2,
         "environment": settings.deployment_environment,
         "experiment_variant": settings.experiment_variant,
     }
@@ -626,6 +669,7 @@ def health(db: Session = Depends(get_db)):
 def features(user: User = Depends(current_user)):
     return {
         "retention_available": settings.retention_available,
+        "hot_or_not_available": settings.retention_available,
         "retained_upload_days": settings.retained_upload_days,
         "narration_available": settings.narration_available,
     }
@@ -636,8 +680,91 @@ def features(user: User = Depends(current_user)):
 def rankings(request: Request, limit: int = 20, db: Session = Depends(get_db), user: User = Depends(current_user)):
     if not 1 <= limit <= 100:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
-    rows = db.scalars(select(Celebrity).order_by(Celebrity.elo.desc()).limit(limit)).all()
-    return [{"id": row.id, "name": row.display_name, "wikipedia_url": row.wikipedia_url, "elo": round(row.elo), "votes": row.vote_count} for row in rows]
+    rows = db.scalars(
+        select(Celebrity)
+        .where(
+            Celebrity.is_hot_or_not_active.is_(True),
+            or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
+        )
+        .order_by(Celebrity.elo.desc())
+        .limit(limit)
+    ).all()
+    ranking_rows = []
+    previous_elo = None
+    current_rank = 0
+    for index, row in enumerate(rows, start=1):
+        if previous_elo is None or row.elo < previous_elo:
+            current_rank = index
+        ranking_rows.append({
+            "id": row.id,
+            "name": row.display_name,
+            "candidate_type": row.candidate_type,
+            "rank": current_rank,
+            "is_owner": row.owner_user_id == user.id,
+            "image_url": f"/api/hot-or-not/candidates/{row.id}/image",
+            "elo": round(row.elo),
+            "votes": row.vote_count,
+        })
+        previous_elo = row.elo
+    own_candidate = db.scalar(
+        select(Celebrity).where(
+            Celebrity.owner_user_id == user.id,
+            Celebrity.is_hot_or_not_active.is_(True),
+            Celebrity.consented_upload_id.is_not(None),
+        )
+    )
+    own_rank = None
+    if own_candidate is not None:
+        own_rank = 1 + (db.scalar(
+            select(func.count()).select_from(Celebrity).where(
+                Celebrity.is_hot_or_not_active.is_(True),
+                or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
+                Celebrity.elo > own_candidate.elo,
+            )
+        ) or 0)
+    return {
+        "rankings": ranking_rows,
+        "my_candidate": None if own_candidate is None else {
+            "id": own_candidate.id,
+            "name": own_candidate.display_name,
+            "rank": own_rank,
+            "elo": round(own_candidate.elo),
+            "votes": own_candidate.vote_count,
+        },
+    }
+
+
+@app.get("/api/hot-or-not/candidates/{candidate_id}/image")
+@limiter.limit("120/minute")
+def hot_or_not_candidate_image(
+    candidate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    candidate = db.get(Celebrity, candidate_id)
+    if candidate is None or not candidate.is_hot_or_not_active:
+        raise HTTPException(status_code=404, detail="Hot or Not portrait not found")
+    if candidate.candidate_type == "user":
+        upload = db.get(ConsentedUpload, candidate.consented_upload_id)
+        if (
+            upload is None
+            or upload.hot_or_not_consented_at is None
+            or upload.expires_at <= datetime.now(UTC)
+        ):
+            raise HTTPException(status_code=404, detail="Hot or Not portrait is no longer available")
+        try:
+            image = decrypt_image(upload.encrypted_image)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Hot or Not portrait cannot be decrypted") from exc
+        return Response(content=image, media_type=upload.image_media_type, headers={"Cache-Control": "no-store"})
+    if candidate.portrait_image is None or candidate.portrait_media_type is None:
+        raise HTTPException(status_code=404, detail="Gallery portrait not available")
+    return Response(
+        content=candidate.portrait_image,
+        media_type=candidate.portrait_media_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @app.post("/api/match")
@@ -648,10 +775,19 @@ async def match(request: Request, db: Session = Depends(get_db), user: User = De
     status, reason, audit_results = "error", "internal_error", []
     try:
         retention_consent = request.headers.get("x-retention-consent", "false").casefold() == "true"
+        hot_or_not_consent = request.headers.get("x-hot-or-not-consent", "false").casefold() == "true"
         narration_consent = request.headers.get("x-narration-consent", "false").casefold() == "true"
+        if hot_or_not_consent and not retention_consent:
+            status, reason = "rejected", "hot_or_not_requires_retention"
+            raise HTTPException(status_code=422, detail="Hot or Not participation requires encrypted photo retention consent")
         if retention_consent and not settings.retention_available:
             status, reason = "blocked", "retention_unavailable"
             raise HTTPException(status_code=503, detail="Consented upload storage is not configured")
+        hot_or_not_name = (
+            candidate_name_from_header(request.headers.get("x-hot-or-not-name", ""))
+            if hot_or_not_consent
+            else None
+        )
         now = datetime.now(UTC)
         recent = db.scalar(select(func.count()).select_from(InferenceEvent).where(InferenceEvent.user_id == user.id, InferenceEvent.created_at >= now - timedelta(minutes=1))) or 0
         daily = db.scalar(select(func.count()).select_from(InferenceEvent).where(InferenceEvent.user_id == user.id, InferenceEvent.created_at >= now - timedelta(days=1))) or 0
@@ -689,12 +825,13 @@ async def match(request: Request, db: Session = Depends(get_db), user: User = De
         result = db.execute(
             text("""WITH identity_distances AS (
                      SELECT c.id, c.display_name, c.wikipedia_url,
+                            (c.portrait_image IS NOT NULL AND c.is_hot_or_not_active) AS has_portrait,
                             MIN(fs.embedding <=> CAST(:embedding AS vector)) AS distance
                      FROM face_samples AS fs
                      JOIN celebrities AS c ON c.id = fs.celebrity_id
-                     GROUP BY c.id, c.display_name, c.wikipedia_url
+                     GROUP BY c.id, c.display_name, c.wikipedia_url, c.portrait_image, c.is_hot_or_not_active
                  )
-                 SELECT id, display_name, wikipedia_url, 1 - distance AS similarity
+                 SELECT id, display_name, wikipedia_url, has_portrait, 1 - distance AS similarity
                  FROM identity_distances
                  ORDER BY distance
                  LIMIT 5"""),
@@ -703,7 +840,16 @@ async def match(request: Request, db: Session = Depends(get_db), user: User = De
         if not result:
             status, reason = "blocked", "gallery_not_loaded"
             raise HTTPException(status_code=503, detail="The reference gallery is not loaded")
-        matches = [{"id": row["id"], "name": row["display_name"], "wikipedia_url": row["wikipedia_url"], "similarity": round(float(row["similarity"]), 3)} for row in result]
+        matches = [
+            {
+                "id": row["id"],
+                "name": row["display_name"],
+                "wikipedia_url": row["wikipedia_url"],
+                "similarity": round(float(row["similarity"]), 3),
+                "image_url": f"/api/hot-or-not/candidates/{row['id']}/image" if row["has_portrait"] else None,
+            }
+            for row in result
+        ]
         audit_results = [{"celebrity_id": row["id"], "name": row["display_name"], "similarity": round(float(row["similarity"]), 3)} for row in result]
         status, reason = "ok", None
         event = write_inference(db, user.id, request_id, started, status, results=audit_results, commit=False)
@@ -711,7 +857,7 @@ async def match(request: Request, db: Session = Depends(get_db), user: User = De
             retained_image = normalize_image_bytes(
                 normalized_image, settings.max_image_pixels, settings.retained_image_max_side, quality=82
             )
-            db.add(ConsentedUpload(
+            retained_upload = ConsentedUpload(
                 id=str(uuid4()), inference_event_id=event.id, user_id=user.id,
                 encrypted_image=encrypt_image(retained_image), image_media_type="image/jpeg",
                 original_media_type=request.headers.get("content-type", "").split(";", maxsplit=1)[0],
@@ -719,8 +865,36 @@ async def match(request: Request, db: Session = Depends(get_db), user: User = De
                 model_version=settings.face_model_version,
                 encryption_key_version=settings.data_encryption_key_version,
                 consent_text_version=settings.consent_text_version, consented_at=now,
+                hot_or_not_consent_version=settings.consent_text_version if hot_or_not_consent else None,
+                hot_or_not_consented_at=now if hot_or_not_consent else None,
                 expires_at=now + timedelta(days=settings.retained_upload_days),
-            ))
+            )
+            db.add(retained_upload)
+            db.flush()
+            if hot_or_not_consent:
+                candidate = db.scalar(select(Celebrity).where(Celebrity.owner_user_id == user.id))
+                if candidate is None:
+                    candidate = Celebrity(
+                        id=str(uuid4()),
+                        display_name=hot_or_not_name,
+                        candidate_type="user",
+                        owner_user_id=user.id,
+                        consented_upload_id=retained_upload.id,
+                        is_hot_or_not_active=True,
+                    )
+                    db.add(candidate)
+                else:
+                    candidate.display_name = hot_or_not_name
+                    candidate.candidate_type = "user"
+                    candidate.consented_upload_id = retained_upload.id
+                    candidate.is_hot_or_not_active = True
+                    candidate.last_hot_or_not_shown_at = None
+                activity(
+                    db,
+                    user.id,
+                    "hot_or_not.consent.granted",
+                    {"candidate_id": candidate.id, "days": settings.retained_upload_days},
+                )
             activity(db, user.id, "consent.upload.retained", {"days": settings.retained_upload_days})
         db.commit()
         narration = await narrate_match(matches) if narration_consent else None
@@ -772,21 +946,72 @@ async def self_similarity(request: Request, user: User = Depends(current_user)):
 @app.get("/api/duel")
 @limiter.limit("30/minute")
 def duel(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    rows = db.scalars(select(Celebrity).order_by(Celebrity.elo.desc()).limit(100)).all()
-    if len(rows) < 2:
-        raise HTTPException(status_code=503, detail="The licensed celebrity gallery is not loaded")
-    # Choose near-neighbours in Elo space so each vote improves the local ordering.
-    left = rows[uuid4().int % len(rows)]
-    right_candidates = [item for item in rows if item.id != left.id]
-    right_candidates.sort(key=lambda item: abs(item.elo - left.elo))
-    right = right_candidates[uuid4().int % min(5, len(right_candidates))]
+    gallery_candidates = db.scalars(
+        select(Celebrity)
+        .where(
+            Celebrity.is_hot_or_not_active.is_(True),
+            Celebrity.candidate_type != "user",
+            Celebrity.portrait_image.is_not(None),
+        )
+        .order_by(func.random())
+        .limit(250)
+    ).all()
+    queued_user = db.scalar(
+        select(Celebrity)
+        .join(ConsentedUpload, Celebrity.consented_upload_id == ConsentedUpload.id)
+        .where(
+            Celebrity.is_hot_or_not_active.is_(True),
+            Celebrity.candidate_type == "user",
+            Celebrity.owner_user_id != user.id,
+            ConsentedUpload.hot_or_not_consented_at.is_not(None),
+            ConsentedUpload.expires_at > datetime.now(UTC),
+        )
+        .order_by(
+            Celebrity.last_hot_or_not_shown_at.asc().nullsfirst(),
+            ConsentedUpload.hot_or_not_consented_at.desc(),
+        )
+        .limit(1)
+    )
+    if queued_user is not None and gallery_candidates:
+        left = queued_user
+        nearby_gallery = sorted(gallery_candidates, key=lambda item: abs(item.elo - left.elo))
+        right = nearby_gallery[uuid4().int % min(5, len(nearby_gallery))]
+    elif len(gallery_candidates) >= 2:
+        left = gallery_candidates[uuid4().int % len(gallery_candidates)]
+        right_candidates = [item for item in gallery_candidates if item.id != left.id]
+        right_candidates.sort(key=lambda item: abs(item.elo - left.elo))
+        right = right_candidates[uuid4().int % min(5, len(right_candidates))]
+    else:
+        raise HTTPException(status_code=503, detail="Hot or Not needs at least two consented or cleared portraits")
+    # Fresh or least-recently shown user profiles lead the queue and face a nearby gallery rating.
+    if left.candidate_type == "user":
+        left.last_hot_or_not_shown_at = datetime.now(UTC)
     from app.models import Duel
 
     duel_id = str(uuid4())
     db.add(Duel(id=duel_id, left_id=left.id, right_id=right.id))
-    activity(db, user.id, "duel.loaded", {"duel_id": duel_id, "candidates": [{"id": left.id, "name": left.display_name}, {"id": right.id, "name": right.display_name}]})
+    activity(
+        db,
+        user.id,
+        "hot_or_not.loaded",
+        {"duel_id": duel_id, "candidate_ids": [left.id, right.id]},
+    )
     db.commit()
-    return {"id": duel_id, "left": {"id": left.id, "name": left.display_name, "wikipedia_url": left.wikipedia_url}, "right": {"id": right.id, "name": right.display_name, "wikipedia_url": right.wikipedia_url}}
+    return {
+        "id": duel_id,
+        "left": {
+            "id": left.id,
+            "name": left.display_name,
+            "candidate_type": left.candidate_type,
+            "image_url": f"/api/hot-or-not/candidates/{left.id}/image",
+        },
+        "right": {
+            "id": right.id,
+            "name": right.display_name,
+            "candidate_type": right.candidate_type,
+            "image_url": f"/api/hot-or-not/candidates/{right.id}/image",
+        },
+    }
 
 
 @app.post("/api/duel/{duel_id}/vote")
@@ -795,7 +1020,7 @@ def vote(duel_id: str, request: Request, winner_id: str, db: Session = Depends(g
     from app.elo import update_pair
     from app.models import Duel, RatingEvent
 
-    with db.begin():
+    try:
         current_duel = db.scalar(select(Duel).where(Duel.id == duel_id).with_for_update())
         if current_duel is None:
             raise HTTPException(status_code=404, detail="Duel not found")
@@ -814,7 +1039,16 @@ def vote(duel_id: str, request: Request, winner_id: str, db: Session = Depends(g
         loser.vote_count += 1
         current_duel.winner_id = winner_id
         db.add(RatingEvent(id=str(uuid4()), duel_id=duel_id, winner_id=winner_id, loser_id=loser_id, winner_delta=winner_delta, loser_delta=loser_delta))
-        activity(db, user.id, "duel.vote", {"duel_id": duel_id, "winner": {"id": winner_id, "name": winner.display_name}, "loser": {"id": loser_id, "name": loser.display_name}})
+        activity(
+            db,
+            user.id,
+            "hot_or_not.vote",
+            {"duel_id": duel_id, "winner_id": winner_id, "loser_id": loser_id},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"ok": True, "winner_elo": round(new_winner), "loser_elo": round(new_loser)}
 
 

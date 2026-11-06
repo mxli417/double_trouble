@@ -4,7 +4,7 @@
 
 - `app.main:app` is the production and local FastAPI entry point. It serves the same-origin UI from `static/` and the API; the main pages are `/`, `/accept`, `/setup-admin`, and `/admin`.
 - The vision path is `/api/self-similarity` and `/api/match` through `app/images.py`, the interface in `app/face_provider.py`, the YuNet/SFace implementation in `app/opencv_provider.py`, and the pgvector query in `app/main.py`. Model acquisition is checksum-pinned in `scripts/fetch_models.py`.
-- Gallery build and idempotent ingest use `python -m app.gallery`; follow `docs/gallery-mlops.md` and ADRs 0002/0008. Face Off uses `/api/duel`, `/api/duel/{id}/vote`, and `app/elo.py`.
+- Gallery build and idempotent ingest use `python -m app.gallery`; follow `docs/gallery-mlops.md` and ADRs 0002/0008/0010. Hot or Not uses `/api/duel`, `/api/duel/{id}/vote`, and `app/elo.py`.
 - Auth, sessions, invitations, roles, audit events, and first-admin setup live in `app/auth.py`, `app/bootstrap_admin.py`, `app/bootstrap_env.py`, and the auth/admin handlers in `app/main.py`. Optional narration is isolated in `app/narration.py`.
 - Configuration is centralized in `app/config.py`. SQLAlchemy models are in `app/models.py`; Alembic uses `alembic.ini`, `migrations/env.py`, and `migrations/versions/`.
 
@@ -20,6 +20,7 @@
 - Preserve the same-origin service, face-provider boundary, PostgreSQL/pgvector data layer, and startup migrations. Render must not depend on SSH, a pre-deploy command, dataset downloads, or a writable runtime model cache; see `docs/deployment.md` and ADRs 0001/0005.
 - Preserve invite-only registration, Argon2id passwords, opaque database-hashed session/invitation tokens, per-request role checks, session revocation, the one-time admin bootstrap, and audited admin access; see ADRs 0006/0009.
 - Photos and query embeddings are request-only by default. Retain only the first normalized photo and its vector after explicit per-match opt-in, encrypt both at application level, record consent/version/expiry, support withdrawal, and keep admin reads role-gated and audited. Never retain the second self-check photo.
+- Serve gallery portraits only from a separately rights-cleared portrait bundle. A retained user portrait may enter Hot or Not only after separate participation consent and must disappear on withdrawal or expiry.
 - Never log request bodies, query strings, IP/account identifiers, tokens, photos, embeddings, image metadata, or similarity scores. Preserve structured logs, W3C trace/request correlation, and platform-provided experiment labels. Never derive A/B cohorts from identity or biometric data.
 - Matching defaults to disabled and remains fail-closed with `503` when disabled, models are unavailable, configuration is incompatible, or the gallery is empty. Never automatically download LFW, other face photos, or unpinned model weights.
 - Keep model/version/dimension checks across image, gallery, and deployment changes. Treat similarity as relative retrieval, self-similarity as a quality check, and Elo as subjective entertainment—not identity proof or an objective attractiveness score.

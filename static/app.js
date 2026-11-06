@@ -1,12 +1,18 @@
-const tabs = document.querySelectorAll('.tab');
+const navItems = document.querySelectorAll('.nav-item');
+
+function notice(message, type = 'info', title = '') {
+  if (window.showNotification) window.showNotification({ message, type, title });
+}
+
 function activateView(view) {
-  tabs.forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  document.querySelector('#match-view').classList.toggle('hidden', view !== 'match');
-  document.querySelector('#rank-view').classList.toggle('hidden', view !== 'rank');
+  navItems.forEach((item) => item.classList.toggle('active', item.dataset.view === view));
+  ['match', 'rank', 'self'].forEach((name) => {
+    document.querySelector(`#${name}-view`).classList.toggle('hidden', name !== view);
+  });
   if (view === 'rank') loadRankings();
 }
 
-tabs.forEach((tab) => tab.addEventListener('click', () => activateView(tab.dataset.view)));
+navItems.forEach((item) => item.addEventListener('click', () => activateView(item.dataset.view)));
 
 const authScreen = document.querySelector('#auth-screen');
 const appContent = document.querySelector('#app-content');
@@ -30,12 +36,19 @@ async function loadFeatures() {
     const response = await fetch('/api/features');
     const features = await response.json();
     if (!response.ok) throw new Error(features.detail || 'Optional services unavailable.');
-    document.querySelector('#retention-consent').disabled = !features.retention_available;
-    document.querySelector('#narration-consent').disabled = !features.narration_available;
+    retentionConsent.disabled = !features.retention_available;
+    hotOrNotConsent.disabled = !features.hot_or_not_available;
+    narrationConsent.disabled = !features.narration_available;
     document.querySelector('#retention-days').textContent = features.retained_upload_days;
-    const enabled = [features.retention_available ? 'encrypted retention' : null, features.narration_available ? 'OpenAI narration' : null].filter(Boolean);
-    note.textContent = enabled.length ? `Available: ${enabled.join(' and ')}.` : 'Optional retention and narration are not configured on this deployment.';
-  } catch (error) { note.textContent = error.message; }
+    const enabled = [
+      features.retention_available ? 'encrypted retention and Hot or Not participation' : null,
+      features.narration_available ? 'OpenAI narration' : null,
+    ].filter(Boolean);
+    note.textContent = enabled.length ? `Available: ${enabled.join(' and ')}.` : 'Optional retention, Hot or Not participation, and narration are not configured.';
+  } catch (error) {
+    note.textContent = error.message;
+    notice(error.message, 'error', 'Feature check failed');
+  }
 }
 
 async function checkSession() {
@@ -48,11 +61,19 @@ loginForm.addEventListener('submit', async (event) => {
   authStatus.textContent = 'Signing in…';
   const formData = new FormData(loginForm);
   try {
-    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(formData)) });
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(formData)),
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Sign in failed.');
     setSignedIn(data);
-  } catch (error) { authStatus.textContent = error.message; }
+    notice('You are signed in and ready to play.', 'success', 'Welcome back');
+  } catch (error) {
+    authStatus.textContent = error.message;
+    notice(error.message, 'error', 'Sign in failed');
+  }
 });
 
 document.querySelector('#logout-button').addEventListener('click', async () => {
@@ -63,35 +84,48 @@ document.querySelector('#logout-button').addEventListener('click', async () => {
 checkSession();
 
 const fileInput = document.querySelector('#photo');
-const verificationInput = document.querySelector('#verification-photo');
 const matchButton = document.querySelector('#match-button');
 const matchStatus = document.querySelector('#match-status');
 const dropZone = document.querySelector('#drop-zone');
-const verificationZone = document.querySelector('#verification-zone');
 const processingConsent = document.querySelector('#processing-consent');
 const retentionConsent = document.querySelector('#retention-consent');
+const hotOrNotConsent = document.querySelector('#hot-or-not-consent');
+const hotOrNotName = document.querySelector('#hot-or-not-name');
+const hotOrNotNameRow = document.querySelector('#hot-or-not-name-row');
 const narrationConsent = document.querySelector('#narration-consent');
 const luckSpiral = document.querySelector('#luck-spiral');
+let activePreviewUrl = null;
 
 function updateMatchButton() {
-  matchButton.disabled = !fileInput.files?.[0] || !verificationInput.files?.[0] || !processingConsent.checked;
+  const validNickname = !hotOrNotConsent.checked || hotOrNotName.value.trim().length >= 2;
+  matchButton.disabled = !fileInput.files?.[0] || !processingConsent.checked || !validNickname;
 }
 
 fileInput.addEventListener('change', () => {
   const file = fileInput.files?.[0];
-  verificationZone.classList.toggle('hidden', !file);
   updateMatchButton();
   if (file) {
     document.querySelector('#drop-zone strong').textContent = file.name;
-    matchStatus.textContent = 'Now add a second photo of the same person in different lighting.';
+    matchStatus.textContent = 'Your photo is ready. Choose only the optional uses you want.';
   }
 });
-verificationInput.addEventListener('change', () => {
-  const file = verificationInput.files?.[0];
-  updateMatchButton();
-  if (file) document.querySelector('#verification-zone strong').textContent = file.name;
-});
+
 processingConsent.addEventListener('change', updateMatchButton);
+retentionConsent.addEventListener('change', () => {
+  if (!retentionConsent.checked) {
+    hotOrNotConsent.checked = false;
+    hotOrNotNameRow.classList.add('hidden');
+  }
+  updateMatchButton();
+});
+hotOrNotConsent.addEventListener('change', () => {
+  if (hotOrNotConsent.checked) retentionConsent.checked = true;
+  hotOrNotNameRow.classList.toggle('hidden', !hotOrNotConsent.checked);
+  if (hotOrNotConsent.checked) hotOrNotName.focus();
+  updateMatchButton();
+});
+hotOrNotName.addEventListener('input', updateMatchButton);
+
 dropZone.addEventListener('dragover', (event) => {
   event.preventDefault();
   dropZone.classList.add('dragging');
@@ -105,36 +139,23 @@ dropZone.addEventListener('drop', (event) => {
     fileInput.dispatchEvent(new Event('change'));
   }
 });
+
 matchButton.addEventListener('click', async () => {
   const file = fileInput.files?.[0];
-  const verificationFile = verificationInput.files?.[0];
-  if (!file || !verificationFile) return;
+  if (!file) return;
   matchButton.disabled = true;
   luckSpiral.classList.remove('hidden');
-  matchStatus.textContent = 'Checking whether the two photos agree…';
+  matchStatus.textContent = 'Finding your closest gallery doubles…';
+  if (activePreviewUrl) URL.revokeObjectURL(activePreviewUrl);
+  activePreviewUrl = URL.createObjectURL(file);
   try {
-    const checkResponse = await fetch('/api/self-similarity', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-First-Image-Type': file.type,
-        'X-Second-Image-Type': verificationFile.type,
-        'X-Second-Image-Offset': String(file.size),
-      },
-      body: new Blob([file, verificationFile]),
-    });
-    const check = await checkResponse.json();
-    if (!checkResponse.ok) throw new Error(check.detail || 'Consistency check is unavailable.');
-    if (!check.passed) {
-      matchStatus.textContent = `Consistency ${check.similarity} is below ${check.threshold}. Try clearer photos or recalibrate the configured provider.`;
-      return;
-    }
-    matchStatus.textContent = `Consistency ${check.similarity} passed. Finding your double…`;
     const response = await fetch('/api/match', {
       method: 'POST',
       headers: {
         'Content-Type': file.type,
         'X-Retention-Consent': String(retentionConsent.checked),
+        'X-Hot-Or-Not-Consent': String(hotOrNotConsent.checked),
+        'X-Hot-Or-Not-Name': hotOrNotConsent.checked ? encodeURIComponent(hotOrNotName.value.trim()) : '',
         'X-Narration-Consent': String(narrationConsent.checked),
       },
       body: file,
@@ -142,37 +163,52 @@ matchButton.addEventListener('click', async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Matching is unavailable.');
     const matches = data.matches;
-    const resultCards = matches.map((person, i) => `<article class="result-card"><b>#${i + 1} ${escapeHtml(person.name)}</b><small>relative lookalike ranking</small>${wikipediaLink(person.wikipedia_url)}</article>`).join('');
+    const yourCard = `<article class="result-card query-card"><img src="${escapeHtml(activePreviewUrl)}" alt="Your uploaded portrait"><b>You</b><small>request upload</small></article>`;
+    const resultCards = matches.map((person, index) => {
+      const portrait = safeImage(person.image_url, `${person.name} portrait`);
+      return `<article class="result-card">${portrait}<b>#${index + 1} ${escapeHtml(person.name)}</b><small>${Math.round(person.similarity * 100)}% relative similarity</small>${wikipediaLink(person.wikipedia_url)}</article>`;
+    }).join('');
     const easterEgg = matches.some(isBenAffleckMatch) ? '<p class="result-message easter-egg">All your Ben Affleck are belong to us.</p>' : '';
     const narration = data.narration ? `<p class="result-message narration">${escapeHtml(data.narration)}</p>` : '';
-    document.querySelector('#match-results').innerHTML = `${resultCards}<p class="result-message">Same face. Different tax bracket.</p>${narration}${easterEgg}<button class="small-action faceoff-cta" type="button">PLAY FACE OFF &rarr;</button>`;
-    document.querySelector('.faceoff-cta').addEventListener('click', () => activateView('rank'));
+    document.querySelector('#match-results').innerHTML = `${yourCard}${resultCards}<p class="result-message">Same face. Different tax bracket.</p>${narration}${easterEgg}<button class="small-action hot-or-not-cta" type="button">PLAY HOT OR NOT &rarr;</button>`;
+    document.querySelector('.hot-or-not-cta').addEventListener('click', () => activateView('rank'));
     matchStatus.textContent = 'The jury has spoken.';
+    notice(
+      hotOrNotConsent.checked ? 'Match complete. Your consented portrait joined Hot or Not.' : 'Your closest gallery doubles are ready.',
+      'success',
+      'Match complete',
+    );
     rainConfetti();
   } catch (error) {
     matchStatus.textContent = error.message;
+    notice(error.message, 'error', 'Match failed');
   } finally {
     luckSpiral.classList.add('hidden');
     fileInput.value = '';
-    verificationInput.value = '';
-    verificationZone.classList.add('hidden');
-    document.querySelector('#drop-zone strong').textContent = 'Take or choose your first selfie';
-    document.querySelector('#verification-zone strong').textContent = 'Take or choose a second selfie';
+    document.querySelector('#drop-zone strong').textContent = 'Take or choose your selfie';
     processingConsent.checked = false;
     retentionConsent.checked = false;
+    hotOrNotConsent.checked = false;
+    hotOrNotName.value = '';
+    hotOrNotNameRow.classList.add('hidden');
     narrationConsent.checked = false;
     updateMatchButton();
   }
 });
 
 document.querySelector('#withdraw-consent').addEventListener('click', async () => {
+  if (!window.confirm('Delete every retained upload and remove your portrait from Hot or Not?')) return;
   const note = document.querySelector('#feature-note');
   try {
     const response = await fetch('/api/me/consented-uploads', { method: 'DELETE' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Deletion failed.');
     note.textContent = `${data.deleted} retained upload(s) deleted.`;
-  } catch (error) { note.textContent = error.message; }
+    notice('Your retained uploads and Hot or Not portrait were removed.', 'success', 'Consent withdrawn');
+  } catch (error) {
+    note.textContent = error.message;
+    notice(error.message, 'error', 'Deletion failed');
+  }
 });
 
 function rainConfetti() {
@@ -195,45 +231,131 @@ async function loadRankings() {
   const nextDuel = document.querySelector('#next-duel');
   try {
     const response = await fetch('/api/rankings?limit=20');
-    if (!response.ok) throw new Error('The licensed gallery is not loaded yet.');
-    const rows = await response.json();
-    document.querySelector('#rankings').innerHTML = rows.map((row, i) => `<li><span>${String(i + 1).padStart(2, '0')} &nbsp; ${escapeHtml(row.name)}</span><span class="score">${row.elo} ELO</span></li>`).join('');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Hot or Not is unavailable.');
+    const rows = payload.rankings;
+    document.querySelector('#rankings').innerHTML = rows.map((row) => `<li class="${row.is_owner ? 'own-ranking' : ''}"><span>${String(row.rank).padStart(2, '0')} &nbsp; ${escapeHtml(row.name)}${row.is_owner ? ' · YOU' : ''}</span><span class="score">${row.elo} ELO</span></li>`).join('');
+    const myRank = document.querySelector('#my-rank');
+    myRank.classList.toggle('hidden', !payload.my_candidate);
+    if (payload.my_candidate) {
+      myRank.innerHTML = `<span>YOUR CURRENT RANK</span><strong>#${payload.my_candidate.rank}</strong><b>${escapeHtml(payload.my_candidate.name)}</b><small>${payload.my_candidate.elo} ELO · ${payload.my_candidate.votes} votes</small>`;
+    }
     nextDuel.disabled = rows.length < 2;
-    status.textContent = rows.length >= 2 ? 'Community taste, rendered as math.' : 'The reference gallery needs at least two people before Face Off can begin.';
+    status.textContent = rows.length >= 2 ? 'Community taste, rendered as math.' : 'At least two consented or cleared portraits are needed.';
     if (rows.length >= 2) await loadDuel();
   } catch (error) {
     nextDuel.disabled = true;
     status.textContent = error.message;
+    notice(error.message, 'error', 'Hot or Not unavailable');
   }
 }
 
 document.querySelector('#next-duel').addEventListener('click', loadDuel);
+
 async function loadDuel() {
   const card = document.querySelector('#duel-card');
   const status = document.querySelector('#rank-status');
   try {
     const response = await fetch('/api/duel');
     const duel = await response.json();
-    if (!response.ok) throw new Error(duel.detail || 'No duel available.');
-    card.innerHTML = `<button class="duel-choice" aria-label="Vote for ${escapeHtml(duel.left.name)}" data-id="${escapeHtml(duel.left.id)}"><div class="duel-placeholder"><span>✦</span><b>${escapeHtml(duel.left.name)}</b><small>VOTE FOR ${escapeHtml(duel.left.name)}</small></div></button><div class="vs">VS</div><button class="duel-choice" aria-label="Vote for ${escapeHtml(duel.right.name)}" data-id="${escapeHtml(duel.right.id)}"><div class="duel-placeholder"><span>✦</span><b>${escapeHtml(duel.right.name)}</b><small>VOTE FOR ${escapeHtml(duel.right.name)}</small></div></button>`;
+    if (!response.ok) throw new Error(duel.detail || 'No matchup available.');
+    card.innerHTML = `${duelChoice(duel.left)}<div class="vs">VS</div>${duelChoice(duel.right)}`;
     document.querySelectorAll('.duel-choice').forEach((button) => button.addEventListener('click', () => castVote(duel.id, button.dataset.id)));
-    status.textContent = 'Choose the hotter one. Elo will sort itself out.';
-  } catch (error) { status.textContent = error.message; }
+    status.textContent = 'Choose your favorite. Elo will sort itself out.';
+  } catch (error) {
+    status.textContent = error.message;
+    notice(error.message, 'error', 'Could not load matchup');
+  }
+}
+
+function duelChoice(candidate) {
+  return `<button class="duel-choice" aria-label="Vote for ${escapeHtml(candidate.name)}" data-id="${escapeHtml(candidate.id)}"><div class="duel-placeholder">${safeImage(candidate.image_url, `${candidate.name} portrait`)}<b>${escapeHtml(candidate.name)}</b><small>VOTE FOR ${escapeHtml(candidate.name)}</small></div></button>`;
 }
 
 async function castVote(duelId, winnerId) {
   const status = document.querySelector('#rank-status');
+  const choices = [...document.querySelectorAll('.duel-choice')];
+  const winner = choices.find((choice) => choice.dataset.id === winnerId);
+  const loser = choices.find((choice) => choice.dataset.id !== winnerId);
+  choices.forEach((choice) => { choice.disabled = true; });
   try {
     const response = await fetch(`/api/duel/${encodeURIComponent(duelId)}/vote?winner_id=${encodeURIComponent(winnerId)}`, { method: 'POST' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || 'Vote failed.');
     status.textContent = `Vote locked in. Winner: ${result.winner_elo} Elo.`;
+    winner?.classList.add('vote-winner');
+    loser?.classList.add('vote-loser');
+    notice('Your Hot or Not vote was counted.', 'success', 'Vote locked in');
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     await loadRankings();
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) {
+    choices.forEach((choice) => { choice.disabled = false; });
+    status.textContent = error.message;
+    notice(error.message, 'error', 'Vote failed');
+  }
+}
+
+const selfPhoto = document.querySelector('#self-photo');
+const selfVerificationPhoto = document.querySelector('#self-verification-photo');
+const selfConsent = document.querySelector('#self-processing-consent');
+const selfButton = document.querySelector('#self-check-button');
+
+function updateSelfButton() {
+  selfButton.disabled = !selfPhoto.files?.[0] || !selfVerificationPhoto.files?.[0] || !selfConsent.checked;
+}
+
+selfPhoto.addEventListener('change', () => {
+  document.querySelector('#self-photo-label').textContent = selfPhoto.files?.[0]?.name || 'Choose the first photo';
+  updateSelfButton();
+});
+selfVerificationPhoto.addEventListener('change', () => {
+  document.querySelector('#self-verification-label').textContent = selfVerificationPhoto.files?.[0]?.name || 'Choose the comparison photo';
+  updateSelfButton();
+});
+selfConsent.addEventListener('change', updateSelfButton);
+selfButton.addEventListener('click', async () => {
+  const first = selfPhoto.files?.[0];
+  const second = selfVerificationPhoto.files?.[0];
+  if (!first || !second) return;
+  selfButton.disabled = true;
+  const status = document.querySelector('#self-status');
+  const result = document.querySelector('#self-result');
+  status.textContent = 'Comparing both request-only embeddings…';
+  try {
+    const response = await fetch('/api/self-similarity', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-First-Image-Type': first.type,
+        'X-Second-Image-Type': second.type,
+        'X-Second-Image-Offset': String(first.size),
+      },
+      body: new Blob([first, second]),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Self-similarity check is unavailable.');
+    result.classList.remove('hidden');
+    result.innerHTML = `<b>${data.passed ? 'PASS' : 'REVIEW'}</b><span>Similarity ${data.similarity}; configured threshold ${data.threshold}.</span>`;
+    status.textContent = data.passed ? 'The model recognizes both photos as sufficiently similar.' : 'The score is below the configured threshold. Try clearer lighting or review calibration.';
+    notice(status.textContent, data.passed ? 'success' : 'warning', 'Self-check complete');
+  } catch (error) {
+    status.textContent = error.message;
+    result.classList.add('hidden');
+    notice(error.message, 'error', 'Self-check failed');
+  } finally {
+    selfButton.disabled = false;
+  }
+});
+
+function safeImage(value, alt) {
+  if (typeof value !== 'string' || !value.startsWith('/api/')) {
+    return '<div class="portrait-missing" aria-label="Portrait unavailable">PORTRAIT UNAVAILABLE</div>';
+  }
+  return `<img src="${escapeHtml(value)}" alt="${escapeHtml(alt)}">`;
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  return String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
 
 function normalizedIdentity(value) {
@@ -251,5 +373,7 @@ function wikipediaLink(value) {
     const host = url.hostname.toLowerCase();
     if (url.protocol !== 'https:' || !(host === 'wikipedia.org' || host.endsWith('.wikipedia.org'))) return '';
     return `<a class="wiki-link" href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">Open Wikipedia profile ↗</a>`;
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }

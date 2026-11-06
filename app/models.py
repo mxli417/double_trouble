@@ -3,9 +3,11 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -19,12 +21,24 @@ from app.db import Base
 
 class Celebrity(Base):
     __tablename__ = "celebrities"
+    __table_args__ = (Index("ix_celebrities_hot_or_not_active", "is_hot_or_not_active"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     wikipedia_url: Mapped[str | None] = mapped_column(Text)
+    candidate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="gallery")
+    owner_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True, index=True
+    )
+    consented_upload_id: Mapped[str | None] = mapped_column(
+        ForeignKey("consented_uploads.id", ondelete="SET NULL"), unique=True, index=True
+    )
+    portrait_image: Mapped[bytes | None] = mapped_column(LargeBinary)
+    portrait_media_type: Mapped[str | None] = mapped_column(String(40))
+    is_hot_or_not_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     elo: Mapped[float] = mapped_column(Float, nullable=False, default=1500)
     vote_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hot_or_not_shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -129,6 +143,8 @@ class ConsentedUpload(Base):
     encryption_key_version: Mapped[str] = mapped_column(String(40), nullable=False)
     consent_text_version: Mapped[str] = mapped_column(String(40), nullable=False)
     consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    hot_or_not_consent_version: Mapped[str | None] = mapped_column(String(40))
+    hot_or_not_consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

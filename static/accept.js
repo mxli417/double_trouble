@@ -2,7 +2,7 @@ const inviteToken = new URLSearchParams(window.location.hash.slice(1)).get('toke
 window.history.replaceState({}, '', '/accept');
 const form = document.querySelector('#accept-form');
 const status = document.querySelector('#accept-status');
-if (!inviteToken) { form.classList.add('hidden'); status.textContent = 'This invitation link is invalid or expired.'; }
+if (!inviteToken) { form.classList.add('hidden'); status.textContent = 'This invitation link is invalid or expired.'; window.showNotification?.({ message: status.textContent, type: 'error', title: 'Invalid invitation' }); }
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const data = new FormData(form);
@@ -13,6 +13,7 @@ form.addEventListener('submit', async (event) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || 'Could not accept invitation.');
     status.textContent = 'Account active. Taking you to the game…';
+    window.showNotification?.({ message: status.textContent, type: 'success', title: 'Welcome' });
     window.location.replace('/');
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) { status.textContent = error.message; window.showNotification?.({ message: error.message, type: 'error', title: 'Activation failed' }); }
 });

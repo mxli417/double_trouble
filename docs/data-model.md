@@ -10,9 +10,9 @@
 
 ## Reference and query vectors
 
-- `celebrities`: stable identity ID, display name, optional Wikipedia URL, Elo state, and timestamps.
-- `face_samples`: reference identity FK, source/provenance fields, and a 128-dimensional pgvector SFace embedding. It never stores the reference photo.
+- `celebrities`: legacy technical table name for both gallery and guest rating candidates. It stores a stable ID, display nickname/name, candidate type, optional owner/consented-upload links, one optional gallery portrait, Hot or Not activation, Elo state, the last Hot or Not appearance used for fair guest queueing, and timestamps. Guest rows never store plaintext image bytes; they point to the encrypted consented upload.
+- `face_samples`: gallery identity FK, source/provenance fields, and a 128-dimensional pgvector SFace embedding. Multiple samples support retrieval; the one optional display portrait lives on the candidate row instead of being duplicated per sample.
 - `inference_events`: requesting user, request ID, outcome/reason, duration, model version, and top public candidate names/IDs/scores. It has no image or query vector by default.
-- `consented_uploads`: one-to-one inference FK, owner, separately Fernet-encrypted normalized JPEG and 128-dimensional query vector, media types, vector dimension, model/key/consent versions, consent timestamp, expiry, and creation time. Only audited admin endpoints decrypt and expose the image/vector; the owner can delete their records.
+- `consented_uploads`: one-to-one inference FK, owner, separately Fernet-encrypted normalized JPEG and 128-dimensional query vector, media types, vector dimension, model/key/retention-consent versions, optional Hot or Not consent version/time, expiry, and creation time. Admin image/vector access remains audited. An active Hot or Not consent additionally permits signed-in players to view only the portrait through its candidate endpoint. Owner/admin deletion or expiry unlinks and deactivates the candidate while retaining anonymized Elo history.
 
 A SFace embedding is a lossy, normalized identity-feature representation. It cannot reproduce the original pixels. Model-inversion techniques may synthesize an approximation, which is why the vector is treated as biometric data, but they cannot recover the actual upload.

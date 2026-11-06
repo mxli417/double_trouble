@@ -62,7 +62,7 @@ services:
       - key: RETAINED_IMAGE_MAX_SIDE
         value: "1024"
       - key: CONSENT_TEXT_VERSION
-        value: "2026-11-05"
+        value: "2026-11-06"
       - key: MATCH_NARRATION_ENABLED
         value: "true"
       - key: OPENAI_API_KEY

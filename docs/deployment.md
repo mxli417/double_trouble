@@ -46,7 +46,7 @@ feature branch -> pull request -> dev -> staging -> main
 
 - Merge feature branches into protected `dev` after CI.
 - Promote `dev` to `staging`; do not bypass the release-candidate environment.
-- Verify migrations, login, invitations, two-photo self-check, representative matches, Face Off voting, logs, CPU latency, memory, and `/api/health` on staging.
+- Verify migrations, login, invitations, the optional two-photo self-check, pictured representative matches, consented Hot or Not participation/voting/withdrawal, logs, CPU latency, memory, and `/api/health` on staging.
 - Promote the reviewed staging commit to `main`. Do not merge `dev` directly to `main`.
 - Require the same CI status on all three protected branches and prohibit force-pushes and branch deletion.
 

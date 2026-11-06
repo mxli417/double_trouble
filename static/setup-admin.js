@@ -12,8 +12,9 @@ form.addEventListener('submit', async (event) => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || 'Setup failed.');
     status.textContent = 'Administrator created. Remove the temporary secret from Render, then continue.';
+    window.showNotification?.({ message: status.textContent, type: 'success', title: 'Admin created' });
     form.reset();
     form.classList.add('hidden');
     document.querySelector('#continue-link').classList.remove('hidden');
-  } catch (error) { status.textContent = error.message; form.elements.secret.value = ''; }
+  } catch (error) { status.textContent = error.message; window.showNotification?.({ message: error.message, type: 'error', title: 'Setup failed' }); form.elements.secret.value = ''; }
 });

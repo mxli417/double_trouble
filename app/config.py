@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     data_encryption_key_version: str = "v1"
     retained_upload_days: int = 30
     retained_image_max_side: int = 1024
-    consent_text_version: str = "2026-11-05"
+    consent_text_version: str = "2026-11-06"
 
     # Optional match narration. Only candidate names and scores are sent.
     match_narration_enabled: bool = False

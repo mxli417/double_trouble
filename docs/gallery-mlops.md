@@ -1,14 +1,14 @@
 # Gallery MLOps
 
-The reference gallery is a versioned ML artifact, not application seed data. It is built outside the web service, contains labels, provenance, model metadata, and face vectors, and is ingested into PostgreSQL with deterministic, repeatable upserts. Source photos are never shipped in the artifact or served by Double Trouble.
+The reference gallery is a versioned ML artifact, not application seed data. It is built outside the web service, contains labels, provenance, model metadata, and face vectors, and is ingested into PostgreSQL with deterministic, repeatable upserts. A portrait-enabled release may additionally contain one normalized display JPEG per identity after a separate rights review.
 
 ## Rights gate
 
-LFW is useful as a small, labeled research baseline, but its image rights are not clear enough for this repository to redistribute the photos or claim blanket public-use permission. Download and vectorization require an explicit operator acknowledgement. Review the intended jurisdiction and use before proceeding; keeping only derived vectors does not remove the need for that review.
+LFW is useful as a small, labeled research baseline, but its image rights are not clear enough for this repository to redistribute or publicly display the photos or claim blanket public-use permission. Download and vectorization require an explicit operator acknowledgement. Displaying portraits is an additional launch gate. Review the intended jurisdiction and use before proceeding; neither noncommercial intent nor keeping only derived vectors removes that obligation.
 
 Do not commit source photos, generated bundles, database URLs, or credentials.
 
-## Build a vector-only bundle
+## Build a portrait-enabled bundle
 
 Use the same pinned YuNet/SFace artifacts and model label as the target application:
 
@@ -18,12 +18,13 @@ python scripts/fetch_lfw.py --destination data --acknowledge-unclear-lfw-rights
 FACE_MODEL_PATH=models python -m app.gallery build \
   --lfw-dir data/lfw_funneled \
   --output artifacts/lfw-sface.jsonl.gz \
+  --include-portraits \
   --acknowledge-lfw-rights-review
 ```
 
-The compressed JSONL artifact records identity labels, deterministic source IDs, provenance, embedding dimension, model version, and 128-dimensional vectors. It contains no image bytes.
+The compressed JSONL artifact records identity labels, deterministic source IDs, provenance, embedding dimension, model version, 128-dimensional vectors, and one normalized JPEG per identity. Omit `--include-portraits` to build a vector-only artifact; matching still works, but result cards have no gallery images and those identities do not enter Hot or Not.
 
-Treat the bundle as immutable. Name or catalog it with its dataset snapshot, model version, build code revision, and checksum. A rebuilt artifact with different inputs is a new release even if the filename would otherwise be the same.
+Treat the bundle as restricted and immutable. Name or catalog it with its dataset snapshot, portrait mode, model version, build code revision, and checksum. Do not commit it or expose it as a public download. A rebuilt artifact with different inputs is a new release even if the filename would otherwise be the same.
 
 ## Load a local gallery
 
@@ -38,7 +39,7 @@ docker compose -f compose.dev.yaml exec app \
 `/app/artifacts`. This preserves the read-only container root filesystem; `docker compose cp`
 cannot copy into this hardened container and is intentionally not part of the workflow.
 
-Ingestion rejects a bundle whose vector dimension or model version differs from the application configuration. Repeating the same ingest is safe because source IDs drive idempotent upserts.
+Ingestion rejects a bundle whose vector dimension or model version differs from the application configuration. Repeating the same ingest is safe because source IDs drive idempotent upserts. Portrait-enabled ingestion sets `is_hot_or_not_active` for pictured identities; a vector-only ingest does not erase portraits already reviewed and loaded.
 
 ## Load a Render gallery
 
@@ -69,7 +70,8 @@ Before promoting a gallery/model pair:
 - calibrate the self-similarity threshold with same-person/different-lighting and different-person pairs;
 - record false-accept and false-reject rates by provider version;
 - benchmark search latency, total request latency, memory, and cold-start behavior on staging;
-- confirm the API returns unique identities and never source photos or bulk vectors.
+- confirm the API returns unique identities, authenticates every individual portrait request, applies `no-store`, and never offers bulk photos or vectors;
+- verify that the source terms permit the intended portrait display before enabling Hot or Not for gallery identities.
 
 Exact cosine search is the baseline at LFW scale. Add an HNSW index only after measurements show that approximate retrieval is needed, and capture its recall/latency trade-off in a new ADR.
 
@@ -77,4 +79,4 @@ Exact cosine search is the baseline at LFW scale. Add an HNSW index only after m
 
 A new detector, encoder, embedding dimension, or material dataset change produces a new gallery version. Build it side by side, validate it on staging, recalibrate thresholds, and coordinate its activation with the matching application version. Do not silently mix embeddings produced by different encoders under one model label.
 
-See [ADR 0002](adr/0002-embedding-and-gallery.md) for retrieval/privacy decisions and [ADR 0008](adr/0008-cpu-vision-and-gallery-delivery.md) for artifact delivery and licensing constraints.
+See [ADR 0002](adr/0002-embedding-and-gallery.md) for retrieval decisions, [ADR 0008](adr/0008-cpu-vision-and-gallery-delivery.md) for artifact delivery, and [ADR 0010](adr/0010-gallery-portraits-and-hot-or-not-consent.md) for portrait and guest-consent constraints.

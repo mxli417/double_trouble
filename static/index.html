@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f5f0e8">
   <title>Double Trouble - find your double</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/notifications.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -16,35 +17,57 @@
       <form id="login-form" class="auth-form"><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">SIGN IN <span>-&gt;</span></button></form>
       <p id="auth-status" class="status" aria-live="polite">Accounts are created by an administrator.</p>
     </section>
-    <section id="app-content" class="hero hidden">
-      <p class="eyebrow">YOUR FACE HAS A FAMOUS COUSIN</p>
-      <h1>Find your double.<br><em>Pick your favorite.</em></h1>
-      <p class="intro">One selfie. Five suspiciously plausible matches. Then help the internet settle the only question that matters: who wins Face Off?</p>
-      <div class="tabs" role="tablist"><button class="tab active" data-view="match">FIND YOUR DOUBLE</button><button class="tab" data-view="rank">FACE OFF</button></div>
+    <section id="app-content" class="workspace hidden">
+      <div class="hero hero-header">
+        <p class="eyebrow">YOUR FACE HAS A FAMOUS COUSIN</p>
+        <h1>Find your double.<br><em>Pick your favorite.</em></h1>
+        <p class="intro">One selfie. Five suspiciously plausible matches. Then join the consent-only party pool and help decide Hot or Not.</p>
+      </div>
+      <div class="app-layout">
+        <aside class="side-nav" aria-label="Play modes">
+          <button class="nav-item active" data-view="match">FIND YOUR DOUBLE</button>
+          <button class="nav-item" data-view="rank">HOT OR NOT</button>
+          <button class="nav-item" data-view="self">SELF-SIMILARITY CHECK</button>
+        </aside>
+        <div class="view-stack">
       <section id="match-view" class="panel">
-        <label id="drop-zone" class="drop-zone" for="photo"><span class="upload-icon">+</span><strong>Take or choose your first selfie</strong><span>Camera or file - JPEG, PNG, WebP, HEIC - max 10 MB</span><input id="photo" type="file" accept="image/*" capture="user"></label>
-        <label id="verification-zone" class="drop-zone verification-zone hidden" for="verification-photo"><span class="upload-icon">+</span><strong>Take or choose a second selfie</strong><span>Same person, different lighting - used for the one-request consistency check</span><input id="verification-photo" type="file" accept="image/*" capture="user"></label>
+        <label id="drop-zone" class="drop-zone" for="photo"><span class="upload-icon">+</span><strong>Take or choose your selfie</strong><span>Camera or file - JPEG, PNG, WebP, HEIC - max 10 MB</span><input id="photo" type="file" accept="image/*" capture="user"></label>
         <fieldset class="consent-panel">
           <legend>YOUR CHOICE, YOUR FACE</legend>
-          <label><input id="processing-consent" type="checkbox"> <span><b>Required:</b> Process both photos and temporary embeddings to find my double. They are discarded after the request unless I opt in below.</span></label>
-          <label><input id="retention-consent" type="checkbox" disabled> <span><b>Optional:</b> Store the first normalized photo encrypted together with its face vector for <span id="retention-days">30</span> days. Only administrators can view the photo; I can delete my retained uploads at any time.</span></label>
+          <label><input id="processing-consent" type="checkbox"> <span><b>Required:</b> Process this photo and a temporary embedding to find my double. Both are discarded after the request unless I opt in below.</span></label>
+          <label><input id="retention-consent" type="checkbox" disabled> <span><b>Optional:</b> Store the normalized photo encrypted together with its face vector for <span id="retention-days">30</span> days. Unless I separately join Hot or Not below, only administrators can view the photo; I can delete my retained uploads at any time.</span></label>
+          <label><input id="hot-or-not-consent" type="checkbox" disabled> <span><b>Optional:</b> Include my encrypted retained portrait in Hot or Not for the same retention period. Signed-in players can see the portrait and rate it. I can withdraw at any time.</span></label>
+          <label id="hot-or-not-name-row" class="nickname-row hidden"><span>Hot or Not nickname<input id="hot-or-not-name" type="text" minlength="2" maxlength="40" autocomplete="off" placeholder="Party nickname"></span></label>
           <label><input id="narration-consent" type="checkbox" disabled> <span><b>Optional:</b> Ask OpenAI for a playful sentence. Only candidate names and similarity scores are sent, never my photo, vector, email, or account ID.</span></label>
           <p id="feature-note" class="consent-note">Optional services are loading.</p>
           <button id="withdraw-consent" class="small-action" type="button">DELETE MY RETAINED UPLOADS</button>
         </fieldset>
-        <button class="primary" id="match-button" disabled>CHECK &amp; FIND MY DOUBLE <span>-&gt;</span></button>
-        <p class="privacy-note">Without optional retention, both images and query embeddings are request-only. Match metadata is retained for 30 days; sign-ins and Face Off activity for up to 365 days.</p>
+        <button class="primary" id="match-button" disabled>FIND MY DOUBLE <span>-&gt;</span></button>
+        <p class="privacy-note">Without optional retention, the upload and query embedding are request-only. Match metadata is retained for 30 days; sign-ins and Hot or Not activity for up to 365 days.</p>
         <div id="match-status" class="status" aria-live="polite">The stage is set. The face model is waiting in the wings.</div>
         <div id="match-results" class="results" aria-live="polite"></div>
       </section>
       <section id="rank-view" class="panel hidden">
-        <div class="duel-heading"><span class="live-dot"></span><span>FACE OFF</span><span class="round-label">ONE VOTE = ONE RATING UPDATE</span></div>
-        <div class="duel-card" id="duel-card"><div class="duel-placeholder"><span>*</span><b>Two icons enter.</b><small>Pick your personal winner.</small></div><div class="vs">VS</div><div class="duel-placeholder"><span>*</span><b>One Elo point leaves.</b><small>Hotness is a relative sport.</small></div></div>
-        <button class="primary" id="next-duel" disabled>LOAD FACE OFF <span>-&gt;</span></button>
-        <p class="privacy-note">No objective hotness score here. Elo reflects pairwise votes. Photo-based duels need a separately cleared portrait source.</p>
-        <div id="rank-status" class="status">The licensed gallery is not loaded yet.</div>
+        <div class="duel-heading"><span class="live-dot"></span><span>HOT OR NOT</span><span class="round-label">ONE VOTE = ONE RATING UPDATE</span></div>
+        <div class="duel-card" id="duel-card"><div class="duel-placeholder"><span>*</span><b>Two portraits enter.</b><small>Pick your personal winner.</small></div><div class="vs">VS</div><div class="duel-placeholder"><span>*</span><b>Elo does the sorting.</b><small>Taste is subjective.</small></div></div>
+        <button class="primary" id="next-duel" disabled>LOAD HOT OR NOT <span>-&gt;</span></button>
+        <p class="privacy-note">No objective hotness score here. Elo reflects pairwise party votes. Guest portraits appear only after explicit, revocable consent.</p>
+        <div id="my-rank" class="my-rank hidden" aria-live="polite"></div>
+        <div id="rank-status" class="status">Two cleared or consented portraits are needed.</div>
         <ol id="rankings" class="rankings"></ol>
       </section>
+      <section id="self-view" class="panel hidden">
+        <div class="duel-heading"><span class="live-dot"></span><span>SELF-SIMILARITY CHECK</span><span class="round-label">OPTIONAL MODEL QUALITY TOOL</span></div>
+        <p class="intro compact">Compare two photos of the same person under different lighting. Neither image nor either embedding is retained.</p>
+        <label class="drop-zone" for="self-photo"><span class="upload-icon">1</span><strong id="self-photo-label">Choose the first photo</strong><span>Clear, front-facing portrait</span><input id="self-photo" type="file" accept="image/*" capture="user"></label>
+        <label class="drop-zone verification-zone" for="self-verification-photo"><span class="upload-icon">2</span><strong id="self-verification-label">Choose the comparison photo</strong><span>Same person, preferably different lighting</span><input id="self-verification-photo" type="file" accept="image/*" capture="user"></label>
+        <label class="standalone-consent"><input id="self-processing-consent" type="checkbox"> I consent to request-only processing of both photos for this check.</label>
+        <button class="primary" id="self-check-button" disabled>RUN SELF-CHECK <span>-&gt;</span></button>
+        <div id="self-status" class="status" aria-live="polite">Choose two photos to inspect model consistency.</div>
+        <div id="self-result" class="self-result hidden"></div>
+      </section>
+        </div>
+      </div>
     </section>
     <footer><span>DOUBLE TROUBLE (C) 2026</span><span>GOOD VIBES. BETTER RANKINGS.</span></footer>
   </main>
