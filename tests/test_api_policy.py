@@ -11,6 +11,9 @@ from app.models import Celebrity, Duel, User
 
 
 class _FakeSession:
+    def execute(self, _statement):
+        return None
+
     def scalar(self, _statement):
         return 0
 
@@ -47,6 +50,46 @@ class ApiPolicyTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "Lookalike matching is not enabled yet")
+
+    def test_readiness_fails_closed_without_required_gallery(self):
+        class _Provider:
+            embedding_dim = 128
+
+        app.dependency_overrides[get_db] = _FakeSession
+        with (
+            patch.object(settings, "gallery_required", True),
+            patch.object(settings, "matching_enabled", True),
+            patch("app.main.get_face_provider", return_value=_Provider()),
+            patch("app.main._last_retention_sweep", perf_counter()),
+        ):
+            response = TestClient(app).get("/api/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(
+            response.json()["failures"],
+            ["gallery_not_loaded", "hot_or_not_not_ready"],
+        )
+
+    def test_readiness_accepts_loaded_gallery_and_models(self):
+        class _ReadySession(_FakeSession):
+            results = iter((1, 2))
+
+            def scalar(self, _statement):
+                return next(self.results)
+
+        class _Provider:
+            embedding_dim = 128
+
+        app.dependency_overrides[get_db] = _ReadySession
+        with (
+            patch.object(settings, "gallery_required", True),
+            patch.object(settings, "matching_enabled", True),
+            patch("app.main.get_face_provider", return_value=_Provider()),
+            patch("app.main._last_retention_sweep", perf_counter()),
+        ):
+            response = TestClient(app).get("/api/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
 
     def test_hot_or_not_requires_separate_retention_consent(self):
         app.dependency_overrides[get_db] = _FakeSession

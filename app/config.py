@@ -1,4 +1,5 @@
 import base64
+import re
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     max_image_pixels: int = 40_000_000
 
     # Authentication and HTTP security
-    allowed_hosts: str = "localhost,127.0.0.1,testserver,.onrender.com"
+    allowed_hosts: str = "localhost,127.0.0.1,testserver,*.onrender.com"
     session_cookie_secure: bool = True
     session_hours: int = 8
     invite_hours: int = 24
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
     experiment_variant: str = "control"
     log_level: str = "INFO"
     self_similarity_threshold: float = 0.55
+    gallery_required: bool = False
+    gallery_bundle_path: str | None = None
+    gallery_bundle_sha256: str | None = None
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -62,6 +66,16 @@ class Settings(BaseSettings):
         if value.startswith("postgresql://"):
             return value.replace("postgresql://", "postgresql+psycopg://", 1)
         return value
+
+    @field_validator("gallery_bundle_sha256")
+    @classmethod
+    def validate_gallery_digest(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().casefold()
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized):
+            raise ValueError("GALLERY_BUNDLE_SHA256 must be a lowercase SHA-256 digest")
+        return normalized
 
     @field_validator("deployment_environment", "experiment_variant", "log_level")
     @classmethod

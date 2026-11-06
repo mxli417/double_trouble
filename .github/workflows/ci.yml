@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -33,5 +34,10 @@ jobs:
       - run: docker compose -f compose.dev.yaml config --quiet
       - run: cp .env.staging.example .env.staging
       - run: docker compose --env-file .env.staging -f compose.staging.yaml config --quiet
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build container
         run: docker build -t double-trouble:${{ github.sha }} .

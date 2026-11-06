@@ -41,24 +41,23 @@ cannot copy into this hardened container and is intentionally not part of the wo
 
 Ingestion rejects a bundle whose vector dimension or model version differs from the application configuration. Repeating the same ingest is safe because source IDs drive idempotent upserts. Portrait-enabled ingestion sets `is_hot_or_not_active` for pictured identities; a vector-only ingest does not erase portraits already reviewed and loaded.
 
-## Load a Render gallery
+## Publish and load a Render gallery
 
-Render Free provides no application shell or pre-deploy job, so ingestion is an operator action from a trusted workstation or controlled CI runner:
-
-1. Allow only the runner's current public IP on the target Render PostgreSQL external connection.
-2. Use the external TLS connection URL with the same application code and dependencies as the target release.
-3. Run the ingest command against the reviewed bundle.
-4. Verify gallery state and representative queries.
-5. Remove external database access immediately.
+The reviewed local bundle is published as a private OCI image; it is never committed or exposed as a public download. Build from the ignored `artifacts/` directory and use an immutable release tag:
 
 ```sh
-DATABASE_URL='postgresql+psycopg://...' \
-FACE_MODEL_VERSION='yunet-2023mar+sface-2021dec' \
-FACE_EMBEDDING_DIM=128 \
-python -m app.gallery ingest --bundle artifacts/lfw-sface.jsonl.gz
+docker login ghcr.io
+docker buildx build --platform linux/amd64 \
+  -f deploy/gallery.Dockerfile \
+  -t ghcr.io/mxli417/double-trouble-gallery:lfw-sface-2021dec-70b441d5 \
+  --push artifacts
+docker buildx imagetools inspect \
+  ghcr.io/mxli417/double-trouble-gallery:lfw-sface-2021dec-70b441d5
 ```
 
-Never paste the database URL into logs, shell history shared with others, tickets, or CI output.
+Keep the package private. Configure a Render registry credential named `double-trouble-ghcr` with a GitHub token limited to `read:packages`, and grant the application repository read access to the package. Pin the resulting registry digest in `Dockerfile` and the independent bundle SHA-256 in `render.yaml`.
+
+At startup the application applies migrations, verifies the bundle checksum and manifest, obtains a PostgreSQL advisory lock, and ingests bounded batches over the internal connection. A `gallery_releases` row records the digest, so subsequent restarts skip unchanged data. Any verification or ingestion error prevents Uvicorn from starting; `/api/ready` remains fail-closed until the gallery, Hot or Not portraits, and face provider are ready.
 
 ## Quality and release gates
 

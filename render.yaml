@@ -6,8 +6,11 @@ services:
     region: frankfurt
     branch: main
     dockerfilePath: ./Dockerfile
+    registryCredential:
+      fromRegistryCreds:
+        name: double-trouble-ghcr
     autoDeployTrigger: checksPass
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -42,7 +45,13 @@ services:
       - key: IMAGE_MAX_SIDE
         value: "1600"
       - key: ALLOWED_HOSTS
-        value: localhost,127.0.0.1,.onrender.com
+        value: localhost,127.0.0.1,*.onrender.com
+      - key: GALLERY_REQUIRED
+        value: "true"
+      - key: GALLERY_BUNDLE_PATH
+        value: /app/gallery/lfw-sface.jsonl.gz
+      - key: GALLERY_BUNDLE_SHA256
+        value: 70b441d5a226dd1c24caf7a9abd69b5650d249f07ef91088ac63b5c59716c2ff
       - key: DEPLOYMENT_ENVIRONMENT
         value: production
       - key: EXPERIMENT_VARIANT

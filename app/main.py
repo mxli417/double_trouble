@@ -665,6 +665,43 @@ def health(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/ready")
+def ready(db: Session = Depends(get_db)):
+    from sqlalchemy import text
+
+    db.execute(text("SELECT 1"))
+    gallery_samples = db.scalar(select(func.count()).select_from(FaceSample)) or 0
+    hot_or_not_candidates = db.scalar(
+        select(func.count()).select_from(Celebrity).where(
+            Celebrity.is_hot_or_not_active.is_(True),
+            or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
+        )
+    ) or 0
+    failures = []
+    if settings.gallery_required and gallery_samples == 0:
+        failures.append("gallery_not_loaded")
+    if settings.gallery_required and hot_or_not_candidates < 2:
+        failures.append("hot_or_not_not_ready")
+    if settings.matching_enabled:
+        try:
+            provider = get_face_provider()
+            if getattr(provider, "embedding_dim", settings.face_embedding_dim) != settings.face_embedding_dim:
+                failures.append("face_model_dimension_mismatch")
+        except RuntimeError:
+            failures.append("face_model_unavailable")
+    content = {
+        "status": "ready" if not failures else "not_ready",
+        "matching_enabled": settings.matching_enabled,
+        "gallery_loaded": gallery_samples > 0,
+        "hot_or_not_ready": hot_or_not_candidates >= 2,
+        "environment": settings.deployment_environment,
+    }
+    if failures:
+        content["failures"] = failures
+        return JSONResponse(status_code=503, content=content)
+    return content
+
+
 @app.get("/api/features")
 def features(user: User = Depends(current_user)):
     return {

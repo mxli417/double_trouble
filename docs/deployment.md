@@ -1,6 +1,6 @@
 # Deployment blueprint
 
-Double Trouble is deployed as one same-origin Docker web service plus PostgreSQL/pgvector. The container serves the static UI and FastAPI API, loads checksum-pinned CPU model artifacts baked into the image, applies Alembic migrations at startup, and exposes `/api/health`. It does not require Render SSH, a pre-deploy command, a writable model cache, or a persistent web-service disk.
+Double Trouble is deployed as one same-origin Docker web service plus PostgreSQL/pgvector. The container serves the static UI and FastAPI API, loads checksum-pinned CPU model artifacts and a digest-pinned private gallery artifact, applies Alembic migrations and idempotent gallery ingestion at startup, and exposes `/api/health` plus strict `/api/ready`. It does not require Render SSH, a pre-deploy command, a writable model cache, or a persistent web-service disk.
 
 ## Environment topology
 
@@ -16,15 +16,15 @@ Use a separate Render web service and database for each environment. Connect pro
 
 1. Push the repository, including `render.yaml`, to GitHub.
 2. In Render choose **New → Blueprint**, connect the repository, select `main`, and keep the default Blueprint path `render.yaml`. The production service is also pinned to `branch: main` in the Blueprint.
-3. Review the proposed web service and PostgreSQL database, provide every `sync: false` secret, and deploy the Blueprint.
-4. Keep service deploys gated on successful GitHub checks (`autoDeployTrigger: checksPass`).
-5. Confirm the service reaches `/api/health` and that the reported environment, matching flag, and gallery state are expected.
-6. Load a reviewed, model-compatible vector gallery by following [Gallery MLOps](gallery-mlops.md).
+3. In Render Workspace Settings, add a private GHCR registry credential named `double-trouble-ghcr`. Use the GitHub account name and a token with `read:packages`; grant the package read access to the repository.
+4. Review the proposed web service and PostgreSQL database, provide every `sync: false` secret, and deploy the Blueprint.
+5. Keep service deploys gated on successful GitHub checks (`autoDeployTrigger: checksPass`).
+6. Confirm `/api/health` reports the expected environment and `/api/ready` returns `200` with loaded gallery, Hot or Not, and face models ready.
 
 The application should receive at least:
 
 - Core: `DATABASE_URL`, `ALLOWED_HOSTS`, `DEPLOYMENT_ENVIRONMENT`, `LOG_LEVEL`.
-- Vision: `MATCHING_ENABLED`, `FACE_PROVIDER`, `FACE_MODEL_PATH`, `FACE_MODEL_VERSION`, `FACE_EMBEDDING_DIM`, `SELF_SIMILARITY_THRESHOLD`.
+- Vision: `MATCHING_ENABLED`, `FACE_PROVIDER`, `FACE_MODEL_PATH`, `FACE_MODEL_VERSION`, `FACE_EMBEDDING_DIM`, `SELF_SIMILARITY_THRESHOLD`, `GALLERY_REQUIRED`, `GALLERY_BUNDLE_PATH`, `GALLERY_BUNDLE_SHA256`.
 - Auth: `SESSION_COOKIE_SECURE=true`, `SESSION_HOURS`, `INVITE_HOURS`, and one of the bootstrap methods below.
 - Consent storage: `CONSENTED_STORAGE_ENABLED`, `DATA_ENCRYPTION_KEY`, `DATA_ENCRYPTION_KEY_VERSION`, `RETAINED_UPLOAD_DAYS`, `RETAINED_IMAGE_MAX_SIDE`, `CONSENT_TEXT_VERSION`.
 - Optional narration: `MATCH_NARRATION_ENABLED`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS`.
@@ -84,22 +84,23 @@ Do not add a second GitHub Actions deploy trigger while `autoDeployTrigger: chec
 
 ## Gallery and model release
 
-The web service never downloads LFW or builds the gallery during startup. Model artifacts are pinned in the image; vector artifacts are built separately and checked for model version and dimension during ingestion. A model change therefore requires:
+The web service never downloads LFW or builds the gallery during startup. Model artifacts are checksum-pinned in the image; the separately reviewed gallery is supplied by a private OCI build stage pinned by registry digest and checked for bundle checksum, model version, and dimension during ingestion. A model or gallery change therefore requires:
 
 1. a new model-version label and pinned image build;
 2. a rebuilt vector gallery;
 3. quality, threshold, latency, and memory evaluation on staging;
-4. coordinated application and gallery promotion.
+4. publishing the new private gallery image and pinning its digest and bundle checksum;
+5. coordinated application and gallery promotion.
 
 ## Observability and experiments
 
-Request logs are structured and correlated with W3C trace/request IDs. They exclude bodies, query strings, photos, embeddings, similarity scores, tokens, account identifiers, and IP addresses. Render health checks use `/api/health`; matching still returns `503` when disabled or incompletely configured.
+Request logs are structured and correlated with W3C trace/request IDs. They exclude bodies, query strings, photos, embeddings, similarity scores, tokens, account identifiers, and IP addresses. Render readiness checks use `/api/ready`; the lightweight `/api/health` remains available for diagnostics, and matching still returns `503` when disabled or incompletely configured.
 
 `EXPERIMENT_VARIANT` supports later platform-level A/B routing. Keep variant assignment outside the application, expose it as environment/request metadata, and never derive a cohort from a face, account identity, or other sensitive trait.
 
 ## Operational gates
 
-- Keep PostgreSQL private except for a short, source-IP-restricted gallery ingestion window.
+- Keep PostgreSQL private; startup ingestion uses the internal database connection and needs no external allow-list.
 - Back up the managed database and retain the encryption key according to the retention policy; losing it makes consented records unreadable.
 - Measure cold starts, memory, and inference latency before sizing the production service.
 - Use a durable database and appropriately sized web instance for a real launch.

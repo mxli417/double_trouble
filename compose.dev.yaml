@@ -28,6 +28,9 @@ services:
       FACE_MODEL_PATH: /app/models
       FACE_EMBEDDING_DIM: "128"
       FACE_MODEL_VERSION: yunet-2023mar+sface-2021dec
+      GALLERY_REQUIRED: "true"
+      GALLERY_BUNDLE_PATH: /app/gallery/lfw-sface.jsonl.gz
+      GALLERY_BUNDLE_SHA256: 70b441d5a226dd1c24caf7a9abd69b5650d249f07ef91088ac63b5c59716c2ff
       SESSION_COOKIE_SECURE: "false"
       SESSION_HOURS: "8"
       INVITE_HOURS: "24"
@@ -56,7 +59,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 12
