@@ -234,7 +234,12 @@ async function loadRankings() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || 'Hot or Not is unavailable.');
     const rows = payload.rankings;
-    document.querySelector('#rankings').innerHTML = rows.map((row) => `<li class="${row.is_owner ? 'own-ranking' : ''}"><span>${String(row.rank).padStart(2, '0')} &nbsp; ${escapeHtml(row.name)}${row.is_owner ? ' · YOU' : ''}</span><span class="score">${row.elo} ELO</span></li>`).join('');
+    document.querySelector('#rankings').innerHTML = rows.map((row) => `<li class="${row.is_owner ? 'own-ranking' : ''}"><span class="rank-number">RANK #${String(row.rank).padStart(2, '0')}</span><span class="ranking-name">${escapeHtml(row.name)}${row.is_owner ? ' · YOU' : ''}</span><span class="score">${row.elo} ELO</span></li>`).join('');
+    const humanPlayers = payload.human_players || [];
+    document.querySelector('#human-player-count').textContent = humanPlayers.length;
+    document.querySelector('#human-players').innerHTML = humanPlayers.length
+      ? humanPlayers.map((player) => `<article class="human-player-card ${player.is_owner ? 'is-you' : ''}">${safeImage(player.image_url, `${player.name} portrait`)}<div><span>HUMAN PLAYER${player.is_owner ? ' · YOU' : ''}</span><b>${escapeHtml(player.name)}</b><small>RANK #${player.rank} · ${player.elo} ELO</small></div></article>`).join('')
+      : '<div class="human-player-empty">No human player has joined yet.</div>';
     const myRank = document.querySelector('#my-rank');
     myRank.classList.toggle('hidden', !payload.my_candidate);
     if (payload.my_candidate) {

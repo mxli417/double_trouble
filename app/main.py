@@ -680,57 +680,64 @@ def features(user: User = Depends(current_user)):
 def rankings(request: Request, limit: int = 20, db: Session = Depends(get_db), user: User = Depends(current_user)):
     if not 1 <= limit <= 100:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
-    rows = db.scalars(
-        select(Celebrity)
+    current_upload_ids = select(ConsentedUpload.id).where(
+        ConsentedUpload.hot_or_not_consented_at.is_not(None),
+        ConsentedUpload.expires_at > datetime.now(UTC),
+    )
+    ranked_candidates = (
+        select(
+            Celebrity.id.label("id"),
+            Celebrity.display_name.label("name"),
+            Celebrity.candidate_type.label("candidate_type"),
+            Celebrity.owner_user_id.label("owner_user_id"),
+            Celebrity.elo.label("elo"),
+            Celebrity.vote_count.label("votes"),
+            func.rank().over(order_by=Celebrity.elo.desc()).label("rank"),
+        )
         .where(
             Celebrity.is_hot_or_not_active.is_(True),
-            or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
+            or_(
+                Celebrity.candidate_type != "user",
+                Celebrity.consented_upload_id.in_(current_upload_ids),
+            ),
         )
-        .order_by(Celebrity.elo.desc())
-        .limit(limit)
-    ).all()
-    ranking_rows = []
-    previous_elo = None
-    current_rank = 0
-    for index, row in enumerate(rows, start=1):
-        if previous_elo is None or row.elo < previous_elo:
-            current_rank = index
-        ranking_rows.append({
-            "id": row.id,
-            "name": row.display_name,
-            "candidate_type": row.candidate_type,
-            "rank": current_rank,
-            "is_owner": row.owner_user_id == user.id,
-            "image_url": f"/api/hot-or-not/candidates/{row.id}/image",
-            "elo": round(row.elo),
-            "votes": row.vote_count,
-        })
-        previous_elo = row.elo
-    own_candidate = db.scalar(
-        select(Celebrity).where(
-            Celebrity.owner_user_id == user.id,
-            Celebrity.is_hot_or_not_active.is_(True),
-            Celebrity.consented_upload_id.is_not(None),
-        )
+        .subquery()
     )
-    own_rank = None
-    if own_candidate is not None:
-        own_rank = 1 + (db.scalar(
-            select(func.count()).select_from(Celebrity).where(
-                Celebrity.is_hot_or_not_active.is_(True),
-                or_(Celebrity.candidate_type != "user", Celebrity.consented_upload_id.is_not(None)),
-                Celebrity.elo > own_candidate.elo,
-            )
-        ) or 0)
+    rows = db.execute(
+        select(ranked_candidates)
+        .order_by(ranked_candidates.c.rank, ranked_candidates.c.name)
+        .limit(limit)
+    ).mappings().all()
+    own_candidate = db.execute(
+        select(ranked_candidates).where(ranked_candidates.c.owner_user_id == user.id)
+    ).mappings().first()
+    human_candidates = db.execute(
+        select(ranked_candidates)
+        .where(ranked_candidates.c.candidate_type == "user")
+        .order_by(ranked_candidates.c.rank, ranked_candidates.c.name)
+    ).mappings().all()
+
+    def public_candidate(row, *, include_owner: bool = False) -> dict:
+        candidate = {
+            "id": row["id"],
+            "name": row["name"],
+            "candidate_type": row["candidate_type"],
+            "rank": int(row["rank"]),
+            "image_url": f"/api/hot-or-not/candidates/{row['id']}/image",
+            "elo": round(row["elo"]),
+            "votes": row["votes"],
+        }
+        if include_owner:
+            candidate["is_owner"] = row["owner_user_id"] == user.id
+        return candidate
+
     return {
-        "rankings": ranking_rows,
-        "my_candidate": None if own_candidate is None else {
-            "id": own_candidate.id,
-            "name": own_candidate.display_name,
-            "rank": own_rank,
-            "elo": round(own_candidate.elo),
-            "votes": own_candidate.vote_count,
-        },
+        "rankings": [public_candidate(row, include_owner=True) for row in rows],
+        "my_candidate": None if own_candidate is None else public_candidate(own_candidate),
+        "human_players": [
+            public_candidate(row, include_owner=True)
+            for row in human_candidates
+        ],
     }
 
 

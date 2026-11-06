@@ -48,13 +48,23 @@
         <div id="match-results" class="results" aria-live="polite"></div>
       </section>
       <section id="rank-view" class="panel hidden">
-        <div class="duel-heading"><span class="live-dot"></span><span>HOT OR NOT</span><span class="round-label">ONE VOTE = ONE RATING UPDATE</span></div>
-        <div class="duel-card" id="duel-card"><div class="duel-placeholder"><span>*</span><b>Two portraits enter.</b><small>Pick your personal winner.</small></div><div class="vs">VS</div><div class="duel-placeholder"><span>*</span><b>Elo does the sorting.</b><small>Taste is subjective.</small></div></div>
-        <button class="primary" id="next-duel" disabled>LOAD HOT OR NOT <span>-&gt;</span></button>
-        <p class="privacy-note">No objective hotness score here. Elo reflects pairwise party votes. Guest portraits appear only after explicit, revocable consent.</p>
-        <div id="my-rank" class="my-rank hidden" aria-live="polite"></div>
-        <div id="rank-status" class="status">Two cleared or consented portraits are needed.</div>
-        <ol id="rankings" class="rankings"></ol>
+        <div class="hot-or-not-grid">
+          <div class="hot-or-not-main">
+            <div class="duel-heading"><span class="live-dot"></span><span>HOT OR NOT</span><span class="round-label">ONE VOTE = ONE RATING UPDATE</span></div>
+            <div class="duel-card" id="duel-card"><div class="duel-placeholder"><span>*</span><b>Two portraits enter.</b><small>Pick your personal winner.</small></div><div class="vs">VS</div><div class="duel-placeholder"><span>*</span><b>Elo does the sorting.</b><small>Taste is subjective.</small></div></div>
+            <button class="primary" id="next-duel" disabled>LOAD HOT OR NOT <span>-&gt;</span></button>
+            <p class="privacy-note">No objective hotness score here. Elo reflects pairwise party votes. Guest portraits appear only after explicit, revocable consent.</p>
+            <div id="my-rank" class="my-rank hidden" aria-live="polite"></div>
+            <div id="rank-status" class="status">Two cleared or consented portraits are needed.</div>
+            <div class="ranking-heading"><span>COMMUNITY RANKING</span><small>RANK · PLAYER · ELO</small></div>
+            <ol id="rankings" class="rankings"></ol>
+          </div>
+          <aside class="human-player-rail" aria-labelledby="human-player-title">
+            <div class="player-rail-heading"><div><span>CONSENTED PLAYERS</span><h2 id="human-player-title">Human lineup</h2></div><b id="human-player-count">0</b></div>
+            <p>Current human players, identified by their chosen nickname.</p>
+            <div id="human-players" class="human-players" aria-live="polite"><div class="human-player-empty">No human player has joined yet.</div></div>
+          </aside>
+        </div>
       </section>
       <section id="self-view" class="panel hidden">
         <div class="duel-heading"><span class="live-dot"></span><span>SELF-SIMILARITY CHECK</span><span class="round-label">OPTIONAL MODEL QUALITY TOOL</span></div>
