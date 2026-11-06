@@ -72,7 +72,7 @@ packaging==26.3
     # via limits
 pgvector==0.5.1
     # via double-trouble
-pillow==12.3.0
+pillow==13.0.0
     # via
     #   double-trouble
     #   pillow-heif
