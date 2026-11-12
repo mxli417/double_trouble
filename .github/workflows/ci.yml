@@ -34,7 +34,7 @@ jobs:
       - run: docker compose -f compose.dev.yaml config --quiet
       - run: cp .env.staging.example .env.staging
       - run: docker compose --env-file .env.staging -f compose.staging.yaml config --quiet
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
